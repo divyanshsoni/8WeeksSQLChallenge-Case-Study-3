@@ -2740,3 +2740,80 @@ previous_plan_trial as (select * from next_plan
  group by next_plan_id, plan_name
  
 -- 7. What is the customer count and percentage breakdown of all 5 plan_name values at 2020-12-31?
+with cte as (SELECT sub.plan_id, plans.plan_name, customer_id, start_date,
+lead(start_date) over(partition by customer_id order by start_date) as next_date
+FROM foodie_fi.plans as plans 
+join foodie_fi.subscriptions as sub
+on plans.plan_id = sub.plan_id
+where start_date <= '2020-12-31')
+
+select plan_id, plan_name, 
+count(distinct customer_id) as customer_count,
+round(count(distinct customer_id)*100.0/(select count(distinct customer_id) from foodie_fi.subscriptions),2) as perct
+from cte
+where next_date is null
+group by plan_id, plan_name
+order by plan_id
+
+-- 8. How many customers have upgraded to an annual plan in 2020?
+select count(distinct customer_id) as customer_count
+from foodie_fi.subscriptions
+where plan_id = 3 and extract(year from start_date) = '2020'
+
+-- 9. How many days on average does it take for a customer to an annual plan from the day they join Foodie-Fi?
+with trial_plan as (
+  select customer_id, start_date
+from foodie_fi.subscriptions
+where plan_id = 0),
+  
+ annual_plan as (
+    select customer_id, start_date
+    from foodie_fi.subscriptions
+    where plan_id = 3)
+    
+ select round(avg(a.start_date - t.start_date),2) as avg_days
+ from trial_plan as t
+ join annual_plan as a 
+ on t.customer_id = a.customer_id
+ 
+ -- 10. Can you further breakdown this average value into 30 day periods (i.e. 0-30 days, 31-60 days etc)
+ with trial_plan as (
+  select customer_id, start_date
+from foodie_fi.subscriptions
+where plan_id = 0),
+  
+ annual_plan as (
+    select customer_id, start_date
+    from foodie_fi.subscriptions
+    where plan_id = 3),
+    
+ diff as(
+   select a.customer_id, (a.start_date-t.start_date) as diff
+   from trial_plan as t
+   join annual_plan as a 
+   on t.customer_id = a.customer_id
+   order by a.customer_id)
+    
+ select 
+ case
+ when diff between 0 and 30 then '0-30 days'
+ when diff between 31 and 60 then'31-60 days'
+ when diff between 61 and 90 then'61-90 days'
+ else 'greater than 90 days'
+ end as period,
+ count(customer_id) as cust_count
+ from diff
+ group by period
+ 
+ -- 11. How many customers downgraded from a pro monthly to a basic monthly plan in 2020?
+ with cte as (
+select customer_id, plan_id,
+  lead(plan_id) over (partition by customer_id order by start_date) as next_plan,
+  start_date,
+  lead(start_date) over(partition by customer_id order by start_date) as next_date
+  from foodie_fi.subscriptions)
+  
+select count(distinct customer_id) as cust_count
+from cte
+where plan_id = 2 and next_plan = 1 and extract(year from next_date) = '2020'
+
